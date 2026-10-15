@@ -3,7 +3,7 @@ from pydantic import Field
 
 
 class Settings(BaseSettings):
-    gemini_api_key: str = Field(default="placeholder", env="GEMINI_API_KEY")
+    groq_api_key: str = Field(default="placeholder", env="GROQ_API_KEY")
     database_url: str = Field(
         default="postgresql://postgres:postgres@localhost:5432/syllabusai",
         env="DATABASE_URL",

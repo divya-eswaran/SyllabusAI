@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { getClasses, getClassProgress, sendChatMessage } from '../api'
 import toast from 'react-hot-toast'
-import ReactMarkdown from 'react-markdown'
+
 
 const QUICK_PROMPTS = [
   { icon: '🗓️', label: 'Lesson Plan', text: 'Create a detailed 60-minute lesson plan for this topic.' },
@@ -16,6 +16,129 @@ const QUICK_PROMPTS = [
   { icon: '🖊️', label: 'Board Notes', text: 'What key points and diagrams should I write on the board?' },
   { icon: '🔗', label: 'Prerequisites', text: 'What prerequisite concepts should students know before I teach this topic?' },
 ]
+
+// Custom markdown renderer — renders headings, bold, lists, code, tables
+function MarkdownContent({ content }) {
+  const lines = content.split('\n')
+  const elements = []
+  let i = 0
+
+  while (i < lines.length) {
+    const line = lines[i]
+
+    // Heading 1
+    if (line.startsWith('# ')) {
+      elements.push(<h1 key={i} style={{ fontSize: '1.2rem', fontWeight: 700, color: '#c7d7ff', marginTop: '1rem', marginBottom: '0.4rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.3rem' }}>{renderInline(line.slice(2))}</h1>)
+    }
+    // Heading 2
+    else if (line.startsWith('## ')) {
+      elements.push(<h2 key={i} style={{ fontSize: '1.05rem', fontWeight: 700, color: '#a5bbff', marginTop: '0.9rem', marginBottom: '0.3rem' }}>{renderInline(line.slice(3))}</h2>)
+    }
+    // Heading 3
+    else if (line.startsWith('### ')) {
+      elements.push(<h3 key={i} style={{ fontSize: '0.95rem', fontWeight: 600, color: '#8098ff', marginTop: '0.7rem', marginBottom: '0.25rem' }}>{renderInline(line.slice(4))}</h3>)
+    }
+    // Horizontal rule
+    else if (line.trim() === '---' || line.trim() === '***') {
+      elements.push(<hr key={i} style={{ borderColor: 'rgba(255,255,255,0.1)', margin: '0.75rem 0' }} />)
+    }
+    // Unordered list item
+    else if (/^[-*+] /.test(line)) {
+      const items = []
+      while (i < lines.length && /^[-*+] /.test(lines[i])) {
+        items.push(<li key={i} style={{ marginBottom: '0.2rem', paddingLeft: '0.25rem' }}>{renderInline(lines[i].slice(2))}</li>)
+        i++
+      }
+      elements.push(<ul key={`ul-${i}`} style={{ listStyleType: 'disc', paddingLeft: '1.25rem', margin: '0.4rem 0', color: '#cbd5e1' }}>{items}</ul>)
+      continue
+    }
+    // Ordered list item
+    else if (/^\d+\. /.test(line)) {
+      const items = []
+      while (i < lines.length && /^\d+\. /.test(lines[i])) {
+        items.push(<li key={i} style={{ marginBottom: '0.2rem', paddingLeft: '0.25rem' }}>{renderInline(lines[i].replace(/^\d+\. /, ''))}</li>)
+        i++
+      }
+      elements.push(<ol key={`ol-${i}`} style={{ listStyleType: 'decimal', paddingLeft: '1.25rem', margin: '0.4rem 0', color: '#cbd5e1' }}>{items}</ol>)
+      continue
+    }
+    // Code block
+    else if (line.startsWith('```')) {
+      const lang = line.slice(3).trim()
+      i++
+      const codeLines = []
+      while (i < lines.length && !lines[i].startsWith('```')) {
+        codeLines.push(lines[i])
+        i++
+      }
+      elements.push(
+        <pre key={i} style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '0.75rem 1rem', margin: '0.6rem 0', overflowX: 'auto', fontSize: '0.8rem', lineHeight: 1.6 }}>
+          <code style={{ color: '#a5f3fc', fontFamily: 'JetBrains Mono, monospace' }}>{codeLines.join('\n')}</code>
+        </pre>
+      )
+    }
+    // Table
+    else if (line.startsWith('|')) {
+      const rows = []
+      while (i < lines.length && lines[i].startsWith('|')) {
+        if (!/^[\s|:-]+$/.test(lines[i])) {
+          const cells = lines[i].split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1)
+          rows.push(cells)
+        }
+        i++
+      }
+      elements.push(
+        <div key={`tbl-${i}`} style={{ overflowX: 'auto', margin: '0.6rem 0' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+            <thead>
+              <tr>{rows[0]?.map((cell, ci) => <th key={ci} style={{ padding: '0.4rem 0.75rem', background: 'rgba(97,114,245,0.2)', color: '#a5bbff', textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>{renderInline(cell.trim())}</th>)}</tr>
+            </thead>
+            <tbody>
+              {rows.slice(1).map((row, ri) => (
+                <tr key={ri} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: ri % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
+                  {row.map((cell, ci) => <td key={ci} style={{ padding: '0.4rem 0.75rem', color: '#cbd5e1' }}>{renderInline(cell.trim())}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+      continue
+    }
+    // Blockquote
+    else if (line.startsWith('> ')) {
+      elements.push(<blockquote key={i} style={{ borderLeft: '3px solid #6172f5', paddingLeft: '0.75rem', margin: '0.5rem 0', color: '#94a3b8', fontStyle: 'italic' }}>{renderInline(line.slice(2))}</blockquote>)
+    }
+    // Empty line
+    else if (line.trim() === '') {
+      elements.push(<div key={i} style={{ height: '0.4rem' }} />)
+    }
+    // Normal paragraph
+    else {
+      elements.push(<p key={i} style={{ margin: '0.15rem 0', color: '#e2e8f0', lineHeight: 1.7 }}>{renderInline(line)}</p>)
+    }
+    i++
+  }
+  return <div style={{ fontSize: '0.875rem' }}>{elements}</div>
+}
+
+// Render inline markdown: bold, italic, inline code, links
+function renderInline(text) {
+  if (!text) return null
+  const parts = []
+  const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|\[(.+?)\]\((.+?)\))/g
+  let last = 0, match
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > last) parts.push(text.slice(last, match.index))
+    if (match[2]) parts.push(<strong key={match.index} style={{ color: '#f1f5f9', fontWeight: 700 }}>{match[2]}</strong>)
+    else if (match[3]) parts.push(<em key={match.index} style={{ color: '#cbd5e1' }}>{match[3]}</em>)
+    else if (match[4]) parts.push(<code key={match.index} style={{ background: 'rgba(0,0,0,0.3)', padding: '0.1rem 0.3rem', borderRadius: '4px', color: '#a5f3fc', fontSize: '0.8rem', fontFamily: 'monospace' }}>{match[4]}</code>)
+    else if (match[5]) parts.push(<a key={match.index} href={match[6]} style={{ color: '#8098ff', textDecoration: 'underline' }} target="_blank" rel="noreferrer">{match[5]}</a>)
+    last = match.index + match[0].length
+  }
+  if (last < text.length) parts.push(text.slice(last))
+  return parts.length === 1 && typeof parts[0] === 'string' ? parts[0] : parts
+}
 
 function ChatBubble({ msg }) {
   const isUser = msg.role === 'user'
@@ -34,14 +157,13 @@ function ChatBubble({ msg }) {
         {isUser ? (
           <p>{msg.content}</p>
         ) : (
-          <div className="prose prose-invert prose-sm max-w-none">
-            <ReactMarkdown>{msg.content}</ReactMarkdown>
-          </div>
+          <MarkdownContent content={msg.content} />
         )}
       </div>
     </div>
   )
 }
+
 
 export default function AIAssistant() {
   const [searchParams] = useSearchParams()

@@ -29,12 +29,11 @@ def _get_embedding_model():
     return _embedding_model
 
 
-def _get_gemini():
+def _get_groq():
     global _gemini_client
     if _gemini_client is None:
-        import google.generativeai as genai
-        genai.configure(api_key=settings.gemini_api_key)
-        _gemini_client = genai.GenerativeModel("gemini-2.0-flash")
+        from groq import Groq
+        _gemini_client = Groq(api_key=settings.groq_api_key)
     return _gemini_client
 
 
@@ -257,28 +256,26 @@ async def chat_with_rag(
     )
 
     try:
-        gemini = _get_gemini()
+        client = _get_groq()
 
-        # Build conversation history for Gemini
-        history = []
-        all_msgs = messages[:-1]  # all but last
-        for msg in all_msgs:
-            role = "user" if msg["role"] == "user" else "model"
-            history.append({"role": role, "parts": [msg["content"]]})
+        # Build conversation history in OpenAI-compatible format
+        chat_messages = [
+            {"role": "system", "content": system_prompt},
+        ]
+        for msg in messages[:-1]:  # all but last
+            role = "user" if msg["role"] == "user" else "assistant"
+            chat_messages.append({"role": role, "content": msg["content"]})
+        chat_messages.append({"role": "user", "content": last_user_message})
 
-        chat = gemini.start_chat(
-            history=[
-                {"role": "user", "parts": [system_prompt]},
-                {"role": "model", "parts": ["Understood. I'm ready to help you prepare for your class. What would you like to know?"]},
-                *history,
-            ]
+        response = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=chat_messages,
+            max_tokens=2048,
         )
-
-        response = chat.send_message(last_user_message)
-        return response.text
+        return response.choices[0].message.content
 
     except Exception as e:
-        logger.error(f"Gemini API error: {e}")
-        if "API_KEY" in str(e) or "api_key" in str(e).lower():
-            return "⚠️ Gemini API key not configured. Please add your GEMINI_API_KEY to the backend/.env file."
+        logger.error(f"Groq API error: {e}")
+        if "api_key" in str(e).lower() or "authentication" in str(e).lower():
+            return "⚠️ Groq API key not configured. Please check your GROQ_API_KEY in the backend/.env file."
         return f"AI service error: {str(e)}"

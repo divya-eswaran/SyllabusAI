@@ -19,14 +19,15 @@ class TopicOut(TopicBase):
         from_attributes = True
 
 
-# ─── Unit ─────────────────────────────────────────────────────────────────────
-
 class UnitBase(BaseModel):
     unit_number: int
     unit_title: str
     description: Optional[str] = None
     hours: Optional[int] = None
 
+    practicals: List[str] = []
+    suggested_activities: List[str] = []
+    suggested_evaluation_methods: List[str] = []
 
 class UnitOut(UnitBase):
     id: int

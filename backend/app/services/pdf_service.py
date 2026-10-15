@@ -7,10 +7,13 @@ Strategy:
    - Subject codes
    - Subject names
    - Credits
-   - L/T/P
+   - L/T/P/C
    - Course type
    - Semester
    - Units and topics
+   - Practicals
+   - Suggested activities
+   - Suggested evaluation methods
    - Course objectives and outcomes
 3. Return a list of SubjectData dictionaries ready for DB insertion.
 """
@@ -25,23 +28,16 @@ import fitz  # PyMuPDF
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────
+# ============================================================
 # REGEX PATTERNS
-# ─────────────────────────────────────────────────────────────
+# ============================================================
 
-# Supports both:
-#
-#   Subject Code: IT501
-#   Course Code: CS301
-#
-# and Anna University style codes:
-#
-#   IT23C01
-#   IT23401
-#   IT23501
-#   EN23C01
-#   MA23C01
-#
+# Subject codes:
+# IT501
+# CS301
+# IT23C01
+# IT23401
+# EN23C01
 RE_SUBJECT_CODE = re.compile(
     r"\b([A-Z]{2,5}\d{2,3}[A-Z]?\d{2,3})\b",
     re.IGNORECASE,
@@ -50,7 +46,8 @@ RE_SUBJECT_CODE = re.compile(
 
 # Explicit subject/course name
 RE_SUBJECT_NAME = re.compile(
-    r"(?:subject\s+name|course\s+name|course\s+title)\s*[:\-]\s*(.+)",
+    r"(?:subject\s+name|course\s+name|course\s+title)"
+    r"\s*[:\-]\s*(.+)",
     re.IGNORECASE,
 )
 
@@ -62,16 +59,32 @@ RE_CREDITS = re.compile(
 )
 
 
-# L/T/P
+# L/T/P format:
+# L/T/P: 3/0/2
 RE_LTP = re.compile(
-    r"L\s*/\s*T\s*/\s*P\s*[:\-]\s*(\d+)\s*/\s*(\d+)\s*/\s*(\d+)",
+    r"L\s*/\s*T\s*/\s*P\s*[:\-]\s*"
+    r"(\d+)\s*/\s*(\d+)\s*/\s*(\d+)",
+    re.IGNORECASE,
+)
+
+
+# L/T/P/C table format:
+#
+# L T P C
+# 3 0 2 4
+#
+RE_LTPC_TABLE = re.compile(
+    r"\bL\s+T\s+P\s+C\b"
+    r"[\s\n]+"
+    r"(\d+)\s+(\d+)\s+(\d+)\s+(\d+)",
     re.IGNORECASE,
 )
 
 
 # Semester
 RE_SEMESTER = re.compile(
-    r"semester\s*[:\-]\s*(I{1,3}V?|VI{0,3}|[1-8])\b",
+    r"semester\s*[:\-]\s*"
+    r"(I{1,3}V?|VI{0,3}|[1-8])\b",
     re.IGNORECASE,
 )
 
@@ -83,7 +96,7 @@ RE_COURSE_TYPE = re.compile(
 )
 
 
-# UNIT headers:
+# Unit headers:
 #
 # UNIT I
 # UNIT - II
@@ -128,9 +141,9 @@ RE_CO_LINE = re.compile(
 )
 
 
-# ─────────────────────────────────────────────────────────────
+# ============================================================
 # HELPER FUNCTIONS
-# ─────────────────────────────────────────────────────────────
+# ============================================================
 
 def _roman_to_int(roman: str) -> int:
     """Convert Roman numeral or numeric string to integer."""
@@ -157,11 +170,51 @@ def _roman_to_int(roman: str) -> int:
     return 1
 
 
+def _clean_topic_text(text: str) -> str:
+    """
+    Clean topic text: remove leading numbering, collapse multiple whitespaces,
+    and strip edge punctuation (colons, semicolons, hyphens, dashes).
+    """
+    text = text.strip()
+    # Remove leading numbering (e.g., "1.", "1)", "1.1", "1 - ")
+    text = re.sub(r"^\s*\d+(?:\.\d+)*\s*[\.\):\-]\s*", "", text)
+    # Normalize internal spaces / linebreaks
+    text = re.sub(r"\s+", " ", text)
+    # Strip edge punctuation and dashes
+    return text.strip(" \t\n\r:;–—−-‒―")
+
+
+def _unique_items(items: list[str]) -> list[str]:
+    """Remove duplicate items while preserving order."""
+
+    result = []
+    seen = set()
+
+    for item in items:
+        item = item.strip()
+
+        if not item:
+            continue
+
+        key = item.lower()
+
+        if key not in seen:
+            seen.add(key)
+            result.append(item)
+
+    return result
+
+
+# ============================================================
+# PDF TEXT EXTRACTION
+# ============================================================
+
 def extract_pdf_text_pages(pdf_bytes: bytes) -> list[dict]:
     """
     Extract text from every page of the PDF.
 
     Returns:
+
         [
             {
                 "page_num": 1,
@@ -193,15 +246,15 @@ def extract_pdf_text_pages(pdf_bytes: bytes) -> list[dict]:
     return pages
 
 
-# ─────────────────────────────────────────────────────────────
+# ============================================================
 # SUBJECT BLOCK SPLITTING
-# ─────────────────────────────────────────────────────────────
+# ============================================================
 
 def _split_into_subject_blocks(full_text: str) -> list[str]:
     """
     Split the PDF text into subject blocks using subject codes.
 
-    Supports formats such as:
+    Supports:
 
         IT23C01 Design and Analysis of Algorithms
 
@@ -242,146 +295,159 @@ def _split_into_subject_blocks(full_text: str) -> list[str]:
     return blocks
 
 
-# ─────────────────────────────────────────────────────────────
-# LIST ITEM EXTRACTION
-# ─────────────────────────────────────────────────────────────
-
-def _extract_list_items(
-    lines: list[str],
-    start_idx: int,
-    stop_pattern,
-) -> tuple[list[str], int]:
-    """
-    Collect bullet / numbered list items until a stop pattern.
-    """
-
-    items = []
-
-    i = start_idx
-
-    while i < len(lines):
-
-        line = lines[i].strip()
-
-        if not line:
-            i += 1
-            continue
-
-        if stop_pattern and stop_pattern.search(line):
-            break
-
-        match = RE_LIST_ITEM.match(lines[i])
-
-        if match:
-            items.append(
-                match.group(1).strip()
-            )
-
-        elif len(line) > 5 and line[0].isupper():
-
-            if len(line) < 200:
-                items.append(line)
-
-        i += 1
-
-    return items, i
-
-
-# ─────────────────────────────────────────────────────────────
+# ============================================================
 # UNIT PARSER
-# ─────────────────────────────────────────────────────────────
+# ============================================================
 
 def _parse_units(text: str) -> list[dict]:
     """
-    Parse UNIT blocks from a subject text block.
+    Parse UNIT blocks and keep syllabus sections separate.
 
-    Returns:
-
-        [
-            {
-                "unit_number": 1,
-                "unit_title": "...",
-                "topics": [...]
-            }
-        ]
+    Strategy for topics:
+      - Bullet/numbered list items  → each item is one topic.
+      - Ordinary lines              → collected into blocks per section,
+                                      joined with a space (reuniting wrapped lines),
+                                      then split on hyphens and dashes:
+                                        – / — / − / ― or " - " / " -" / "- "
+                                      so that multi-line entries like:
+                                        "Overview of Java – OOPS Fundamentals
+                                         in Java: Classes, Objects, Methods and Strings–Array and\\n
+                                         Array Lists"
+                                      correctly become 3 separate topics:
+                                        1. "Overview of Java"
+                                        2. "OOPS Fundamentals in Java: Classes, Objects, Methods and Strings"
+                                        3. "Array and Array Lists"
     """
-
     units = []
-
-    unit_matches = list(
-        RE_UNIT_HEADER.finditer(text)
-    )
+    unit_matches = list(RE_UNIT_HEADER.finditer(text))
 
     for idx, match in enumerate(unit_matches):
-
         unit_roman = match.group(1)
+        unit_title_suffix = (match.group(2) or "").strip().rstrip(":-\u2012\u2013\u2014\u2015\u2212")
+        unit_num = _roman_to_int(unit_roman)
 
-        unit_title_suffix = (
-            match.group(2) or ""
-        ).strip().rstrip(":-–")
-
-        unit_num = _roman_to_int(
-            unit_roman
-        )
-
-        # Text between this UNIT and next UNIT
+        # Get text belonging to this unit
         start = match.end()
-
-        if idx + 1 < len(unit_matches):
-            end = unit_matches[idx + 1].start()
-        else:
-            end = len(text)
-
+        end = unit_matches[idx + 1].start() if idx + 1 < len(unit_matches) else len(text)
         unit_body = text[start:end]
 
-        if unit_title_suffix:
-            unit_title = unit_title_suffix
-        else:
-            unit_title = f"Unit {unit_num}"
+        # Unit title
+        unit_title = (
+            _clean_topic_text(unit_title_suffix)
+            if unit_title_suffix
+            else f"Unit {unit_num}"
+        )
 
-        topics = []
+        SECTIONS = (
+            "topics",
+            "practicals",
+            "suggested_activities",
+            "suggested_evaluation_methods",
+        )
+        section_list = {s: [] for s in SECTIONS}
+        section_block = {s: [] for s in SECTIONS}
 
-        for line in unit_body.split("\n"):
+        current_section = "topics"
+        _SKIP = {"l", "t", "p", "c", "ltp", "ltpc", "syllabus", "contents"}
+        lines = unit_body.split("\n")
+        i = 0
 
-            line = line.strip()
+        while i < len(lines):
+            raw_line = lines[i]
+            line = raw_line.strip()
+            i += 1
 
-            if not line or len(line) < 3:
+            if not line:
                 continue
 
-            list_match = RE_LIST_ITEM.match(line)
+            # Detect section headers
+            normalized = re.sub(r"[\s:.\-]+$", "", line.lower()).strip()
 
+            if normalized in {"practicals", "practical", "practical work", "practical component"}:
+                current_section = "practicals"
+                continue
+
+            if normalized in {"suggested activities", "suggested activity", "activities"}:
+                current_section = "suggested_activities"
+                continue
+
+            if normalized in {
+                "suggested evaluation methods", "suggested evaluation method",
+                "evaluation methods", "evaluation method",
+            }:
+                current_section = "suggested_evaluation_methods"
+                continue
+
+            # Skip unrelated headers
+            if re.match(r"^(course objectives?|course outcomes?)", line, re.IGNORECASE):
+                continue
+
+            # Skip garbage tokens
+            if line.lower() in _SKIP:
+                continue
+
+            if len(line) < 3 or len(line) >= 200:
+                continue
+
+            if RE_UNIT_HEADER.match(line) or RE_OBJECTIVES.search(line) or RE_OUTCOMES.search(line):
+                continue
+
+            # Bullet / numbered list item → already one topic
+            list_match = RE_LIST_ITEM.match(raw_line)
             if list_match:
+                item = _clean_topic_text(list_match.group(1).strip())
+                if item and len(item) >= 3:
+                    section_list[current_section].append(item)
+                continue
 
-                topics.append(
-                    list_match.group(1).strip()
+            # Ordinary line → collect for later hyphen-splitting
+            section_block[current_section].append(line)
+
+        # Process each section: join block lines → split on hyphens/dashes
+        def _process_section(sec: str) -> list[str]:
+            items = list(section_list[sec])
+            block_lines = section_block[sec]
+            if block_lines:
+                # Join lines to reunite wrapped topics
+                combined = " ".join(block_lines)
+                # Split on:
+                # 1. Any Unicode dash: en-dash (– \u2013), em-dash (— \u2014), minus sign (− \u2212),
+                #    horizontal bar (― \u2015), figure dash (‒ \u2012)
+                # 2. ASCII hyphen '-' with whitespace on at least one side (e.g. " - ", " -", "- ")
+                #    to avoid breaking intra-word hyphens like 'Object-Oriented' or 'Built-in'
+                parts = re.split(
+                    r"\s*[\u2012\u2013\u2014\u2015\u2212]\s*|\s+-\s*|\s*-\s+",
+                    combined,
                 )
+                for part in parts:
+                    item = _clean_topic_text(part)
+                    if item and len(item) >= 3:
+                        items.append(item)
+            return items
 
-            elif (
-                line[0].isupper()
-                and len(line) < 150
-                and not RE_UNIT_HEADER.match(line)
-                and not RE_OBJECTIVES.search(line)
-                and not RE_OUTCOMES.search(line)
-            ):
+        topics = _unique_items(_process_section("topics"))
+        practicals = _unique_items(_process_section("practicals"))
+        suggested_activities = _unique_items(_process_section("suggested_activities"))
+        suggested_evaluation_methods = _unique_items(_process_section("suggested_evaluation_methods"))
 
-                topics.append(line)
-
-        if topics:
-
+        if topics or practicals or suggested_activities or suggested_evaluation_methods:
             units.append(
                 {
                     "unit_number": unit_num,
                     "unit_title": unit_title,
-                    "topics": topics[:30],
+                    "topics": topics,
+                    "practicals": practicals,
+                    "suggested_activities": suggested_activities,
+                    "suggested_evaluation_methods": suggested_evaluation_methods,
                 }
             )
 
     return units
 
 
-# ─────────────────────────────────────────────────────────────
+# ============================================================
 # SUBJECT NAME EXTRACTION
-# ─────────────────────────────────────────────────────────────
+# ============================================================
 
 def _extract_subject_name(
     block: str,
@@ -390,24 +456,11 @@ def _extract_subject_name(
 ) -> str:
     """
     Extract the subject name after the subject code.
-
-    Handles names split across multiple PDF lines.
-
-    Example:
-
-        IT23402 Computer Organization
-        and Architecture
-
-    becomes:
-
-        Computer Organization and Architecture
     """
 
-    # ---------------------------------------------------------
-    # First try explicit label:
-    #
-    # Subject Name: Database Management Systems
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+    # First try explicit label
+    # --------------------------------------------------------
 
     name_match = RE_SUBJECT_NAME.search(block)
 
@@ -419,9 +472,9 @@ def _extract_subject_name(
             .title()
         )
 
-    # ---------------------------------------------------------
-    # Otherwise look after the subject code.
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+    # Otherwise look after subject code
+    # --------------------------------------------------------
 
     remaining_text = block[
         code_match.end():
@@ -451,7 +504,9 @@ def _extract_subject_name(
             "l",
             "t",
             "p",
+            "c",
             "ltp",
+            "ltpc",
         }:
             continue
 
@@ -465,7 +520,6 @@ def _extract_subject_name(
 
         name_lines.append(line)
 
-        # Most subject names fit within 3 lines
         if len(name_lines) >= 3:
             break
 
@@ -475,7 +529,7 @@ def _extract_subject_name(
             name_lines
         ).strip()
 
-        # Remove accidental table values at the end
+        # Remove accidental number at end
         subject_name = re.sub(
             r"\s+\d+\s*$",
             "",
@@ -487,9 +541,9 @@ def _extract_subject_name(
     return subject_code
 
 
-# ─────────────────────────────────────────────────────────────
+# ============================================================
 # SUBJECT BLOCK PARSER
-# ─────────────────────────────────────────────────────────────
+# ============================================================
 
 def parse_subject_block(
     block: str,
@@ -500,11 +554,9 @@ def parse_subject_block(
     Returns None if no subject code can be found.
     """
 
-    lines = block.split("\n")
-
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
     # Subject code
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
 
     code_match = RE_SUBJECT_CODE.search(block)
 
@@ -518,9 +570,9 @@ def parse_subject_block(
         .upper()
     )
 
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
     # Subject name
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
 
     subject_name = _extract_subject_name(
         block,
@@ -528,9 +580,9 @@ def parse_subject_block(
         subject_code,
     )
 
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
     # Credits
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
 
     credits = None
 
@@ -542,13 +594,19 @@ def parse_subject_block(
             credits_match.group(1)
         )
 
-    # ---------------------------------------------------------
-    # L / T / P
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+    # L / T / P / C
+    # --------------------------------------------------------
 
     lecture = None
     tutorial = None
     practical = None
+    ltp_credits = None
+
+    # Format:
+    #
+    # L/T/P: 3/0/2
+    #
 
     ltp_match = RE_LTP.search(block)
 
@@ -566,9 +624,42 @@ def parse_subject_block(
             ltp_match.group(3)
         )
 
-    # ---------------------------------------------------------
+    else:
+
+        # Format:
+        #
+        # L T P C
+        # 3 0 2 4
+        #
+
+        ltpc_match = RE_LTPC_TABLE.search(block)
+
+        if ltpc_match:
+
+            lecture = int(
+                ltpc_match.group(1)
+            )
+
+            tutorial = int(
+                ltpc_match.group(2)
+            )
+
+            practical = int(
+                ltpc_match.group(3)
+            )
+
+            ltp_credits = int(
+                ltpc_match.group(4)
+            )
+
+    # If C was present in L/T/P/C table,
+    # use it as credits.
+    if ltp_credits is not None:
+        credits = ltp_credits
+
+    # --------------------------------------------------------
     # Semester
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
 
     semester = None
 
@@ -581,9 +672,9 @@ def parse_subject_block(
             .upper()
         )
 
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
     # Course type
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
 
     course_type = None
 
@@ -596,9 +687,9 @@ def parse_subject_block(
             .strip()
         )
 
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
     # Course objectives
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
 
     objectives = []
 
@@ -618,9 +709,7 @@ def parse_subject_block(
             if not line:
                 continue
 
-            list_match = RE_LIST_ITEM.match(
-                line
-            )
+            list_match = RE_LIST_ITEM.match(line)
 
             if list_match:
 
@@ -638,9 +727,9 @@ def parse_subject_block(
             if len(objectives) >= 10:
                 break
 
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
     # Course outcomes
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
 
     outcomes = []
 
@@ -660,31 +749,32 @@ def parse_subject_block(
             if not line:
                 continue
 
-            co_match = RE_CO_LINE.match(
-                line
-            )
+            co_match = RE_CO_LINE.match(line)
 
             if co_match:
 
                 outcomes.append(
                     {
-                        "code": co_match.group(1).strip(),
-                        "description": co_match.group(2).strip(),
+                        "code":
+                            co_match.group(1).strip(),
+
+                        "description":
+                            co_match.group(2).strip(),
                     }
                 )
 
             if len(outcomes) >= 10:
                 break
 
-    # ---------------------------------------------------------
-    # Units and topics
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+    # Units
+    # --------------------------------------------------------
 
     units = _parse_units(block)
 
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
     # Return structured subject
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
 
     return {
         "subject_code": subject_code,
@@ -701,41 +791,69 @@ def parse_subject_block(
     }
 
 
-# ─────────────────────────────────────────────────────────────
+# ============================================================
 # MAIN PDF PROCESSOR
-# ─────────────────────────────────────────────────────────────
+# ============================================================
 
-async def process_pdf(pdf_bytes: bytes) -> list[dict]:
+async def process_pdf(
+    pdf_bytes: bytes,
+) -> list[dict]:
     """
-    Main entry point: parse a PDF and return a list of subject dicts.
+    Main entry point.
 
-    If the same subject code appears multiple times in the PDF,
-    prefer the occurrence containing detailed syllabus units/topics.
+    Parse PDF and return a list of subject dictionaries.
+
+    If the same subject code appears multiple times,
+    prefer the occurrence containing more detailed syllabus
+    information.
     """
 
-    logger.info("Starting PDF processing")
+    logger.info(
+        "Starting PDF processing"
+    )
 
-    pages = extract_pdf_text_pages(pdf_bytes)
-    full_text = "\n".join(p["text"] for p in pages)
+    pages = extract_pdf_text_pages(
+        pdf_bytes
+    )
 
-    logger.info(f"Extracted text from {len(pages)} PDF pages")
+    full_text = "\n".join(
+        p["text"]
+        for p in pages
+    )
 
-    blocks = _split_into_subject_blocks(full_text)
-    logger.info(f"Found {len(blocks)} subject blocks")
+    logger.info(
+        f"Extracted text from "
+        f"{len(pages)} PDF pages"
+    )
+
+    blocks = _split_into_subject_blocks(
+        full_text
+    )
+
+    logger.info(
+        f"Found {len(blocks)} subject blocks"
+    )
 
     # Store the best version of each subject.
     subject_map = {}
 
     for block in blocks:
+
         try:
-            result = parse_subject_block(block)
+
+            result = parse_subject_block(
+                block
+            )
 
             if not result:
                 continue
 
             code = result["subject_code"]
 
-            # How much useful syllabus information does this block contain?
+            # ------------------------------------------------
+            # Calculate usefulness score
+            # ------------------------------------------------
+
             score = 0
 
             if result.get("units"):
@@ -753,23 +871,50 @@ async def process_pdf(pdf_bytes: bytes) -> list[dict]:
             if result.get("lecture_hours") is not None:
                 score += 5
 
-            # Keep the block with the most detailed information.
+            # ------------------------------------------------
+            # Keep most detailed block
+            # ------------------------------------------------
+
             if code not in subject_map:
-                subject_map[code] = (score, result)
+
+                subject_map[code] = (
+                    score,
+                    result,
+                )
+
             elif score > subject_map[code][0]:
-                subject_map[code] = (score, result)
+
+                subject_map[code] = (
+                    score,
+                    result,
+                )
 
         except Exception as e:
-            logger.warning(f"Failed to parse subject block: {e}")
+
+            logger.warning(
+                f"Failed to parse subject block: {e}"
+            )
+
+    # --------------------------------------------------------
+    # Build final list
+    # --------------------------------------------------------
 
     subjects = []
 
     for code, (_, subject) in subject_map.items():
+
         subjects.append(subject)
 
-    logger.info(f"Parsed {len(subjects)} subjects from PDF")
+    logger.info(
+        f"Parsed {len(subjects)} subjects from PDF"
+    )
+
+    # --------------------------------------------------------
+    # Debug information
+    # --------------------------------------------------------
 
     for subject in subjects:
+
         logger.info(
             f"Detected subject: "
             f"{subject['subject_code']} - "

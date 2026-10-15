@@ -51,9 +51,17 @@ class Unit(Base):
     description = Column(Text)
     hours = Column(Integer)
 
-    subject = relationship("Subject", back_populates="units")
-    topics = relationship("Topic", back_populates="unit", cascade="all, delete-orphan")
+    # Additional syllabus sections
+    practicals = Column(JSON, default=list)
+    suggested_activities = Column(JSON, default=list)
+    suggested_evaluation_methods = Column(JSON, default=list)
 
+    subject = relationship("Subject", back_populates="units")
+    topics = relationship(
+        "Topic",
+        back_populates="unit",
+        cascade="all, delete-orphan"
+    )
 
 class Topic(Base):
     """A single topic within a unit."""

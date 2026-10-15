@@ -91,12 +91,19 @@ def _save_subjects_to_db(db: Session, subjects_data: list[dict]) -> list[Subject
         # Create new units
         for unit_data in data.get("units", []):
             unit = Unit(
-                subject_id=subject.id,
-                unit_number=unit_data["unit_number"],
-                unit_title=unit_data["unit_title"],
-                description=unit_data.get("description"),
-                hours=unit_data.get("hours"),
-            )
+    subject_id=subject.id,
+    unit_number=unit_data["unit_number"],
+    unit_title=unit_data["unit_title"],
+    description=unit_data.get("description"),
+    hours=unit_data.get("hours"),
+    practicals=unit_data.get("practicals", []),
+    suggested_activities=unit_data.get(
+        "suggested_activities", []
+    ),
+    suggested_evaluation_methods=unit_data.get(
+        "suggested_evaluation_methods", []
+    ),
+)
 
             db.add(unit)
             db.flush()
