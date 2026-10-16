@@ -24,6 +24,7 @@ class Subject(Base):
     subject_code = Column(String(50), unique=True, index=True, nullable=False)
     subject_name = Column(String(255), nullable=False, index=True)
     semester = Column(String(20))
+    regulation = Column(String(50), index=True)
     credits = Column(Integer)
     lecture_hours = Column(Integer)
     tutorial_hours = Column(Integer)
@@ -71,7 +72,7 @@ class Topic(Base):
     id = Column(Integer, primary_key=True, index=True)
     unit_id = Column(Integer, ForeignKey("units.id"), nullable=False)
     topic_order = Column(Integer, nullable=False)
-    topic_name = Column(String(500), nullable=False)
+    topic_name = Column(Text, nullable=False)
     description = Column(Text)
     embedding = Column(JSON)  # stored as list of floats
 
@@ -93,6 +94,22 @@ class SyllabusChunk(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class User(Base):
+    """User / Teacher account for authentication."""
+
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(255), unique=True, index=True, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    full_name = Column(String(255), nullable=False)
+    role = Column(String(50), default="teacher")  # 'teacher', 'admin', 'hod'
+    department = Column(String(100), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    teacher_classes = relationship("TeacherClass", back_populates="user")
+
+
 class TeacherClass(Base):
     """A class/batch that a teacher is currently handling."""
 
@@ -100,6 +117,7 @@ class TeacherClass(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     batch = Column(String(20))           # e.g. 2025-2029
     department = Column(String(100))
     section = Column(String(10))
@@ -107,6 +125,7 @@ class TeacherClass(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     subject = relationship("Subject", back_populates="teacher_classes")
+    user = relationship("User", back_populates="teacher_classes")
     topic_progress = relationship(
         "TopicProgress", back_populates="teacher_class", cascade="all, delete-orphan"
     )

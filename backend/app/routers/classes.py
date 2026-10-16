@@ -1,13 +1,15 @@
 """Router for teacher class management and progress tracking."""
 
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
+from sqlalchemy import or_
 
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Subject, TeacherClass, Topic, TopicProgress, Unit
+from app.auth import get_optional_user
+from app.models import Subject, TeacherClass, Topic, TopicProgress, Unit, User
 from app.schemas import (
     TeacherClassCreate,
     TeacherClassOut,
@@ -45,7 +47,11 @@ def _build_class_out(tc: TeacherClass) -> TeacherClassOut:
 
 
 @router.post("", response_model=TeacherClassOut)
-def create_class(payload: TeacherClassCreate, db: Session = Depends(get_db)):
+def create_class(
+    payload: TeacherClassCreate,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
+):
     """Add a new teacher class."""
     subject = db.query(Subject).filter(Subject.id == payload.subject_id).first()
     if not subject:
@@ -53,6 +59,7 @@ def create_class(payload: TeacherClassCreate, db: Session = Depends(get_db)):
 
     tc = TeacherClass(
         subject_id=payload.subject_id,
+        user_id=current_user.id if current_user else None,
         batch=payload.batch,
         department=payload.department,
         section=payload.section,
@@ -65,9 +72,17 @@ def create_class(payload: TeacherClassCreate, db: Session = Depends(get_db)):
 
 
 @router.get("", response_model=List[TeacherClassOut])
-def list_classes(db: Session = Depends(get_db)):
-    """List all teacher classes."""
-    classes = db.query(TeacherClass).order_by(TeacherClass.created_at.desc()).all()
+def list_classes(
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
+):
+    """List all teacher classes (filtered for user if logged in)."""
+    query = db.query(TeacherClass)
+    if current_user:
+        query = query.filter(
+            or_(TeacherClass.user_id == current_user.id, TeacherClass.user_id.is_(None))
+        )
+    classes = query.order_by(TeacherClass.created_at.desc()).all()
     return [_build_class_out(tc) for tc in classes]
 
 

@@ -18,6 +18,13 @@ def _save_subjects_to_db(db: Session, subjects_data: list[dict]) -> list[Subject
     saved = []
 
     for data in subjects_data:
+        total_topics = sum(len(u.get("topics", [])) for u in data.get("units", []))
+        if not data.get("units") or total_topics == 0:
+            logger.info(
+                f"Skipping subject {data.get('subject_code')} with no units or topics"
+            )
+            continue
+
         existing = db.query(Subject).filter(
             Subject.subject_code == data["subject_code"]
         ).first()
@@ -32,6 +39,7 @@ def _save_subjects_to_db(db: Session, subjects_data: list[dict]) -> list[Subject
             # Update subject information
             subject.subject_name = data["subject_name"]
             subject.semester = data.get("semester")
+            subject.regulation = data.get("regulation")
             subject.credits = data.get("credits")
             subject.lecture_hours = data.get("lecture_hours")
             subject.tutorial_hours = data.get("tutorial_hours")
@@ -76,6 +84,7 @@ def _save_subjects_to_db(db: Session, subjects_data: list[dict]) -> list[Subject
                 subject_code=data["subject_code"],
                 subject_name=data["subject_name"],
                 semester=data.get("semester"),
+                regulation=data.get("regulation"),
                 credits=data.get("credits"),
                 lecture_hours=data.get("lecture_hours"),
                 tutorial_hours=data.get("tutorial_hours"),
@@ -91,19 +100,19 @@ def _save_subjects_to_db(db: Session, subjects_data: list[dict]) -> list[Subject
         # Create new units
         for unit_data in data.get("units", []):
             unit = Unit(
-    subject_id=subject.id,
-    unit_number=unit_data["unit_number"],
-    unit_title=unit_data["unit_title"],
-    description=unit_data.get("description"),
-    hours=unit_data.get("hours"),
-    practicals=unit_data.get("practicals", []),
-    suggested_activities=unit_data.get(
-        "suggested_activities", []
-    ),
-    suggested_evaluation_methods=unit_data.get(
-        "suggested_evaluation_methods", []
-    ),
-)
+                subject_id=subject.id,
+                unit_number=unit_data["unit_number"],
+                unit_title=unit_data["unit_title"],
+                description=unit_data.get("description"),
+                hours=unit_data.get("hours"),
+                practicals=unit_data.get("practicals", []),
+                suggested_activities=unit_data.get(
+                    "suggested_activities", []
+                ),
+                suggested_evaluation_methods=unit_data.get(
+                    "suggested_evaluation_methods", []
+                ),
+            )
 
             db.add(unit)
             db.flush()
@@ -113,10 +122,17 @@ def _save_subjects_to_db(db: Session, subjects_data: list[dict]) -> list[Subject
                 unit_data.get("topics", []),
                 start=1
             ):
+                clean_name = str(topic_name).strip()
+                if not clean_name:
+                    continue
+                # Ensure safety limit to prevent DB string truncation errors
+                if len(clean_name) > 400:
+                    clean_name = clean_name[:397] + "..."
+
                 topic = Topic(
                     unit_id=unit.id,
                     topic_order=order,
-                    topic_name=topic_name,
+                    topic_name=clean_name,
                 )
 
                 db.add(topic)
@@ -134,6 +150,7 @@ def _build_summary(subject: Subject) -> SubjectSummary:
         subject_code=subject.subject_code,
         subject_name=subject.subject_name,
         semester=subject.semester,
+        regulation=subject.regulation,
         credits=subject.credits,
         course_type=subject.course_type,
         unit_count=len(subject.units),

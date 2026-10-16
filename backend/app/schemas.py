@@ -49,6 +49,7 @@ class SubjectBase(BaseModel):
     subject_code: str
     subject_name: str
     semester: Optional[str] = None
+    regulation: Optional[str] = None
     credits: Optional[int] = None
     lecture_hours: Optional[int] = None
     tutorial_hours: Optional[int] = None
@@ -77,6 +78,7 @@ class SubjectSummary(BaseModel):
     subject_code: str
     subject_name: str
     semester: Optional[str] = None
+    regulation: Optional[str] = None
     credits: Optional[int] = None
     course_type: Optional[str] = None
     unit_count: int = 0
@@ -167,3 +169,35 @@ class SearchResponse(BaseModel):
     results: List[SubjectSummary]
     total: int
     query: str
+
+
+# ─── Auth / User ──────────────────────────────────────────────────────────────
+
+class UserCreate(BaseModel):
+    email: str
+    password: str
+    full_name: str
+    department: Optional[str] = None
+    role: Optional[str] = "teacher"
+
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+
+class UserOut(BaseModel):
+    id: int
+    email: str
+    full_name: str
+    role: str
+    department: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user: UserOut
