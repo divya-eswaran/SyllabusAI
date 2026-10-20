@@ -10,7 +10,6 @@ from sqlalchemy import or_
 from app.database import get_db
 from app.auth import get_optional_current_user
 from app.models import Subject, TeacherClass, Topic, TopicProgress, Unit, User
-
 from app.schemas import (
     TeacherClassCreate,
     TeacherClassOut,
@@ -19,6 +18,8 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/api/classes", tags=["Classes"])
+
+
 def _build_class_out(tc: TeacherClass) -> TeacherClassOut:
     subject = tc.subject
     # Count all topics for this subject
@@ -45,8 +46,6 @@ def _build_class_out(tc: TeacherClass) -> TeacherClassOut:
         progress_percent=pct,
         created_at=tc.created_at,
     )
-
-
 
 
 @router.post("", response_model=TeacherClassOut)
@@ -90,7 +89,6 @@ def list_classes(
         )
     classes = query.order_by(TeacherClass.created_at.desc()).all()
     return [_build_class_out(tc) for tc in classes]
-
 
 
 @router.get("/{class_id}", response_model=TeacherClassOut)

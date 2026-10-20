@@ -28,7 +28,7 @@ REV_ROMAN = {v: k for k, v in ROMAN_MAP.items()}
 
 SEM_EXACT_PATTERNS = [
     re.compile(r"^\s*(?:sem(?:ester)?|s)\s*[-:]?\s*([0-9]+|[ivxlcdm]+)\s*$", re.IGNORECASE),
-    re.compile(r"^\s*([0-9]+)(?:st|nd|rd|th)?\s*(?:sem(?:ester)?)\s*$", re.IGNORECASE),
+    re.compile(r"^\s*([0-9]+)(?:st|nd|rd|th)?\s*(?:sem(?:ester)?)?\s*$", re.IGNORECASE),
     re.compile(r"^\s*(?:electives?|pe|oec)\s*$", re.IGNORECASE),
 ]
 
@@ -280,6 +280,7 @@ def list_all_subjects(
         query = query.filter(func.lower(func.trim(Subject.semester)).in_(cands))
 
     subjects = query.order_by(Subject.semester, Subject.subject_code).limit(limit).all()
+
     summaries = []
     for s in subjects:
         topic_count = sum(len(u.topics) for u in s.units)

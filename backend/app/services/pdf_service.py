@@ -33,13 +33,24 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 # Subject codes:
-# IT501
-# CS301
-# IT23C01
-# IT23401
-# EN23C01
+# IT501, CS301, IT23C01, IT23401, EN23C01
 RE_SUBJECT_CODE = re.compile(
     r"\b([A-Z]{2,5}\d{2,3}[A-Z]?\d{2,3})\b",
+    re.IGNORECASE,
+)
+
+# Common hardware chips, protocols, standards, or false-positive codes to ignore as subjects
+EXCLUDED_SUBJECT_CODES = {
+    "ESP8266", "ESP32", "CDMA2000", "ISO14000", "ISO9001", "ISO9000",
+    "IEEE802", "IPV6", "IPV4", "SHA256", "AES128", "AES256", "AES192",
+    "RS232", "RS485", "STM32", "ARM7", "ARM9", "ARM11", "WCDMA", "HSDPA",
+    "HSUPA", "GSM900", "DCS1800", "HTML5", "CSS3", "MP3", "MPEG4", "H264",
+    "TCP4", "TCP6", "UDP4", "UDP6", "USB2", "USB3", "PCI3", "SATA3",
+}
+
+# Unit end markers: syllabus text following Unit 5 (textbooks, references, etc.)
+RE_UNIT_END_MARKERS = re.compile(
+    r"^(?:TOTAL\s*[:\-–]?\s*\d+\s*(?:PERIODS|HOURS)?|TEXT\s*BOOKS?|REFERENCES?|ONLINE\s*REFERENCES?|WEB\s*REFERENCES?|COURSE\s*OUTCOMES?|CO\s*[-–]\s*PO|PO\s*MAPPING|TEACHING\s*METHODOLOGY|LABORATORY\s*EXERCISES?|SUGGESTED\s*EVALUATION\s*METHODS?|CONTINUOUS\s*ASSESSMENT)",
     re.IGNORECASE,
 )
 
@@ -85,6 +96,12 @@ RE_LTPC_TABLE = re.compile(
 RE_SEMESTER = re.compile(
     r"semester\s*[:\-]\s*"
     r"(I{1,3}V?|VI{0,3}|[1-8])\b",
+    re.IGNORECASE,
+)
+
+# Regulation
+RE_REGULATION = re.compile(
+    r"(?:regulations?|reg\.?|r)\s*[-–:]?\s*(20\d{2}|19\d{2})",
     re.IGNORECASE,
 )
 
@@ -172,16 +189,50 @@ def _roman_to_int(roman: str) -> int:
 
 def _clean_topic_text(text: str) -> str:
     """
-    Clean topic text: remove leading numbering, collapse multiple whitespaces,
-    and strip edge punctuation (colons, semicolons, hyphens, dashes).
+    Clean topic text: remove leading numbering or hours (e.g. '9+3 ', '1.', '1)'),
+    collapse multiple whitespaces, and strip edge punctuation.
     """
     text = text.strip()
+    # Strip leading unit hours like "9+3 " or "12 "
+    text = re.sub(r"^\s*\d+(?:\s*[\+\-]\s*\d+)?\s+", "", text)
     # Remove leading numbering (e.g., "1.", "1)", "1.1", "1 - ")
     text = re.sub(r"^\s*\d+(?:\.\d+)*\s*[\.\):\-]\s*", "", text)
     # Normalize internal spaces / linebreaks
     text = re.sub(r"\s+", " ", text)
     # Strip edge punctuation and dashes
-    return text.strip(" \t\n\r:;–—−-‒―")
+    return text.strip(" \t\n\r:;–—−-‒―.,")
+
+
+def _is_valid_topic(text: str) -> bool:
+    """
+    Check if an extracted string is a valid syllabus topic,
+    filtering out textbooks, URLs, matrices, period totals, etc.
+    """
+    if not text or len(text) < 3 or len(text) > 300:
+        return False
+    lower = text.lower()
+    # Check for unit end / noise markers
+    if re.search(
+        r"\b(?:total\s*:\s*\d+\s*(?:periods|hours)?|text\s*books?|references?|po1\s+po2|co1\s+co2|course\s+outcomes?|course\s+objectives?)\b",
+        lower,
+    ):
+        return False
+    # Check for websites/URLs
+    if re.search(
+        r"^(?:www\.|https?://|[a-z0-9\-]+\.(?:com|org|edu|in|gov|net))\b",
+        lower,
+    ):
+        return False
+    # Check for publisher citations
+    if re.search(
+        r"\b(?:orient\s*blackswan|cambridge\s*university|red\s*globe\s*press|cengage\s*learning|mcgraw\s*hill|prentice\s*hall|springer|pearson|oxford\s*university)\b",
+        lower,
+    ):
+        return False
+    # Check if text is just numbers or punctuation
+    if re.match(r"^[\d\s\W]+$", text):
+        return False
+    return True
 
 
 def _unique_items(items: list[str]) -> list[str]:
@@ -253,22 +304,20 @@ def extract_pdf_text_pages(pdf_bytes: bytes) -> list[dict]:
 def _split_into_subject_blocks(full_text: str) -> list[str]:
     """
     Split the PDF text into subject blocks using subject codes.
-
-    Supports:
-
-        IT23C01 Design and Analysis of Algorithms
-
-    or:
-
-        IT23C01
-        Design and Analysis of Algorithms
-
-    Subject names can continue onto multiple lines.
+    Filters out hardware acronyms and false-positive codes.
     """
 
-    matches = list(
-        RE_SUBJECT_CODE.finditer(full_text)
-    )
+    raw_matches = list(RE_SUBJECT_CODE.finditer(full_text))
+
+    # Filter out hardware, protocols, or excluded codes
+    matches = []
+    for m in raw_matches:
+        code = m.group(1).upper()
+        if code in EXCLUDED_SUBJECT_CODES:
+            continue
+        if re.match(r"^(?:ESP|ISO|CDMA|IEEE|IPV|SHA|AES|RS\d|STM\d|ARM\d|WCDMA|HSDPA|HSUPA)", code):
+            continue
+        matches.append(m)
 
     if not matches:
         logger.warning(
@@ -360,6 +409,10 @@ def _parse_units(text: str) -> list[dict]:
             if not line:
                 continue
 
+            # Stop parsing unit if trailing text (textbooks, references, totals, etc.) begins
+            if RE_UNIT_END_MARKERS.search(line):
+                break
+
             # Detect section headers
             normalized = re.sub(r"[\s:.\-]+$", "", line.lower()).strip()
 
@@ -392,11 +445,11 @@ def _parse_units(text: str) -> list[dict]:
             if RE_UNIT_HEADER.match(line) or RE_OBJECTIVES.search(line) or RE_OUTCOMES.search(line):
                 continue
 
-            # Bullet / numbered list item → already one topic
+            # Bullet / numbered list item → clean and save
             list_match = RE_LIST_ITEM.match(raw_line)
             if list_match:
                 item = _clean_topic_text(list_match.group(1).strip())
-                if item and len(item) >= 3:
+                if _is_valid_topic(item):
                     section_list[current_section].append(item)
                 continue
 
@@ -405,23 +458,25 @@ def _parse_units(text: str) -> list[dict]:
 
         # Process each section: join block lines → split on hyphens/dashes
         def _process_section(sec: str) -> list[str]:
-            items = list(section_list[sec])
+            items = []
+            for item in section_list[sec]:
+                if _is_valid_topic(item):
+                    items.append(item)
             block_lines = section_block[sec]
             if block_lines:
                 # Join lines to reunite wrapped topics
                 combined = " ".join(block_lines)
-                # Split on:
-                # 1. Any Unicode dash: en-dash (– \u2013), em-dash (— \u2014), minus sign (− \u2212),
-                #    horizontal bar (― \u2015), figure dash (‒ \u2012)
-                # 2. ASCII hyphen '-' with whitespace on at least one side (e.g. " - ", " -", "- ")
-                #    to avoid breaking intra-word hyphens like 'Object-Oriented' or 'Built-in'
+                # Strip leading unit hours like "9+3 " or "12 "
+                combined = re.sub(r"^\s*\d+(?:\s*[\+\-]\s*\d+)?\s+", "", combined)
+                # Split on hyphens / dashes:
+                # Any hyphen or dash between words forms separate topics
                 parts = re.split(
-                    r"\s*[\u2012\u2013\u2014\u2015\u2212]\s*|\s+-\s*|\s*-\s+",
+                    r"\s*[\u2012\u2013\u2014\u2015\u2212]\s*|\s*-\s*",
                     combined,
                 )
                 for part in parts:
                     item = _clean_topic_text(part)
-                    if item and len(item) >= 3:
+                    if _is_valid_topic(item):
                         items.append(item)
             return items
 
@@ -602,8 +657,6 @@ KNOWN_SEMESTER_MAP = {
     "UC23P03": ("Elective", "Value Added"),
 }
 
-INVALID_CODES = {"CDMA2000", "ESP8266", "ISO14000"}
-
 
 def clean_subject_name(name: str) -> str:
     if not name:
@@ -648,11 +701,42 @@ def infer_subject_metadata(subject_code: str, existing_semester: Optional[str] =
 
 
 # ============================================================
+# CURRICULUM SEMESTER MAPPER (FOR 4-YEAR SYLLABUS PDFS)
+# ============================================================
+
+def _extract_curriculum_semester_map(full_text: str) -> dict[str, str]:
+    """
+    In a 4-year curriculum document, tables under 'SEMESTER I' through 'SEMESTER VIII'
+    list all subjects for each semester. This function scans those tables and maps
+    each subject code to its semester ('1' through '8').
+    """
+    code_to_sem = {}
+    sem_matches = list(re.finditer(r"\b(?:SEMESTER|SEM)\s*[-\u2013:]?\s*(I{1,3}V?|VI{0,3}|[1-8])\b", full_text, re.IGNORECASE))
+
+    for idx, match in enumerate(sem_matches):
+        sem_str = match.group(1).upper()
+        sem_num = str(_roman_to_int(sem_str))
+        start = match.end()
+        end = sem_matches[idx + 1].start() if idx + 1 < len(sem_matches) else min(start + 5000, len(full_text))
+        chunk = full_text[start:end]
+
+        for code_match in RE_SUBJECT_CODE.finditer(chunk):
+            code = code_match.group(1).upper()
+            if code not in EXCLUDED_SUBJECT_CODES and not re.match(r"^(?:ESP|ISO|CDMA|IEEE|IPV|SHA|AES|RS\d|STM\d|ARM\d)", code):
+                if code not in code_to_sem:
+                    code_to_sem[code] = sem_num
+
+    return code_to_sem
+
+
+# ============================================================
 # SUBJECT BLOCK PARSER
 # ============================================================
 
 def parse_subject_block(
     block: str,
+    default_regulation: Optional[str] = None,
+    semester_map: Optional[dict] = None,
 ) -> Optional[dict]:
     """
     Parse a single subject block.
@@ -676,7 +760,7 @@ def parse_subject_block(
         .upper()
     )
 
-    if subject_code in INVALID_CODES:
+    if subject_code in EXCLUDED_SUBJECT_CODES or re.match(r"^(?:ESP|ISO|CDMA|IEEE|IPV|SHA|AES|RS\d|STM\d|ARM\d)", subject_code):
         return None
 
     # --------------------------------------------------------
@@ -772,14 +856,41 @@ def parse_subject_block(
 
     semester = None
 
-    sem_match = RE_SEMESTER.search(block)
+    if semester_map and subject_code in semester_map:
+        semester = semester_map[subject_code]
+    else:
+        sem_match = RE_SEMESTER.search(block)
+        if sem_match:
+            semester = str(_roman_to_int(sem_match.group(1)))
+        else:
+            # Infer semester from subject code:
+            # e.g. IT23601 -> 6, IT23401 -> 4
+            code_sem = re.search(r"^[A-Za-z]{2,4}\d{2}([1-8])\d{2}$", subject_code)
+            if code_sem:
+                semester = code_sem.group(1)
+            else:
+                code_sem2 = re.search(r"^[A-Za-z]{2}\d([1-8])\d{2}$", subject_code)
+                if code_sem2:
+                    semester = code_sem2.group(1)
 
-    if sem_match:
+    # --------------------------------------------------------
+    # Regulation
+    # --------------------------------------------------------
 
-        semester = (
-            sem_match.group(1)
-            .upper()
-        )
+    regulation = None
+    reg_match = RE_REGULATION.search(block)
+
+    if reg_match:
+        regulation = f"Regulation {reg_match.group(1)}"
+    elif default_regulation:
+        regulation = default_regulation if "Regulation" in default_regulation else f"Regulation {default_regulation}"
+    else:
+        # Infer from subject code (e.g. IT23... -> Regulation 2023)
+        yr_m = re.search(r"^[A-Za-z]{2,4}(\d{2})", subject_code)
+        if yr_m:
+            regulation = f"Regulation 20{yr_m.group(1)}"
+        else:
+            regulation = "Regulation 2021"
 
     # --------------------------------------------------------
     # Course type
@@ -950,6 +1061,14 @@ async def process_pdf(
         f"Found {len(blocks)} subject blocks"
     )
 
+    # Detect document-level regulation if available
+    doc_reg = RE_REGULATION.search(full_text)
+    default_regulation = f"Regulation {doc_reg.group(1)}" if doc_reg else None
+
+    # Pre-scan 4-year curriculum semester tables (SEMESTER I to VIII)
+    semester_map = _extract_curriculum_semester_map(full_text)
+    logger.info(f"Mapped {len(semester_map)} subjects to semesters from curriculum structure")
+
     # Store the best version of each subject.
     subject_map = {}
 
@@ -958,7 +1077,9 @@ async def process_pdf(
         try:
 
             result = parse_subject_block(
-                block
+                block,
+                default_regulation=default_regulation,
+                semester_map=semester_map,
             )
 
             if not result:
@@ -1012,17 +1133,19 @@ async def process_pdf(
             )
 
     # --------------------------------------------------------
-    # Build final list
+    # Build final list (filter out irrelevant subjects with 0 units or 0 topics)
     # --------------------------------------------------------
 
     subjects = []
 
     for code, (_, subject) in subject_map.items():
-
-        subjects.append(subject)
+        unit_count = len(subject.get("units", []))
+        total_topics = sum(len(u.get("topics", [])) for u in subject.get("units", []))
+        if unit_count > 0 and total_topics > 0:
+            subjects.append(subject)
 
     logger.info(
-        f"Parsed {len(subjects)} subjects from PDF"
+        f"Parsed {len(subjects)} valid subjects with syllabus content from PDF"
     )
 
     # --------------------------------------------------------

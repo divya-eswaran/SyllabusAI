@@ -72,7 +72,7 @@ class Topic(Base):
     id = Column(Integer, primary_key=True, index=True)
     unit_id = Column(Integer, ForeignKey("units.id"), nullable=False)
     topic_order = Column(Integer, nullable=False)
-    topic_name = Column(String(500), nullable=False)
+    topic_name = Column(Text, nullable=False)
     description = Column(Text)
     embedding = Column(JSON)  # stored as list of floats
 
@@ -102,8 +102,8 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
-    full_name = Column(String(100), nullable=False)
-    role = Column(String(50), default="teacher")  # 'teacher', 'admin', 'student'
+    full_name = Column(String(255), nullable=False)
+    role = Column(String(50), default="teacher")  # 'teacher', 'admin', 'hod', 'student'
     department = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     student_id = Column(String(50), nullable=True)
@@ -111,7 +111,7 @@ class User(Base):
     section = Column(String(10), nullable=True)
     last_login = Column(DateTime(timezone=True), nullable=True)
 
-    classes = relationship("TeacherClass", back_populates="user")
+    teacher_classes = relationship("TeacherClass", back_populates="user")
 
 
 class TeacherClass(Base):
@@ -129,7 +129,7 @@ class TeacherClass(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     subject = relationship("Subject", back_populates="teacher_classes")
-    user = relationship("User", back_populates="classes")
+    user = relationship("User", back_populates="teacher_classes")
     topic_progress = relationship(
         "TopicProgress", back_populates="teacher_class", cascade="all, delete-orphan"
     )
@@ -149,4 +149,3 @@ class TopicProgress(Base):
 
     teacher_class = relationship("TeacherClass", back_populates="topic_progress")
     topic = relationship("Topic", back_populates="progress_records")
-

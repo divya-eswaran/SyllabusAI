@@ -1,6 +1,8 @@
 """Router for user authentication and profile management."""
 
+import logging
 from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -14,6 +16,8 @@ from app.auth import (
     get_current_user,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
 
@@ -23,15 +27,18 @@ def register(payload: UserRegister, db: Session = Depends(get_db)):
     email_clean = payload.email.strip().lower()
     if not email_clean:
         raise HTTPException(status_code=400, detail="Email is required.")
-    if len(payload.password) < 6:
-        raise HTTPException(
-            status_code=400, detail="Password must be at least 6 characters long."
-        )
 
     existing = db.query(User).filter(User.email == email_clean).first()
     if existing:
         raise HTTPException(
-            status_code=400, detail="An account with this email already exists."
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An account with this email already exists.",
+        )
+
+    if len(payload.password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 6 characters long.",
         )
 
     user = User(
@@ -49,6 +56,7 @@ def register(payload: UserRegister, db: Session = Depends(get_db)):
     token = create_access_token(
         data={"sub": user.email, "user_id": user.id, "role": user.role}
     )
+    logger.info(f"Registered new user: {user.email} (ID: {user.id})")
     return Token(access_token=token, token_type="bearer", user=UserOut.model_validate(user))
 
 
@@ -71,12 +79,13 @@ def login(payload: UserLogin, db: Session = Depends(get_db)):
     token = create_access_token(
         data={"sub": user.email, "user_id": user.id, "role": user.role}
     )
+    logger.info(f"User logged in: {user.email}")
     return Token(access_token=token, token_type="bearer", user=UserOut.model_validate(user))
 
 
 @router.get("/me", response_model=UserOut)
-def get_current_user_profile(current_user: User = Depends(get_current_user)):
-    """Return the profile of currently authenticated user."""
+def get_profile(current_user: User = Depends(get_current_user)):
+    """Return the profile of the currently authenticated user."""
     return UserOut.model_validate(current_user)
 
 
@@ -99,7 +108,6 @@ def demo_login(db: Session = Depends(get_db)):
         db.commit()
         db.refresh(user)
     else:
-        # ensure password is valid if reset
         user.last_login = datetime.now(timezone.utc)
         db.commit()
 

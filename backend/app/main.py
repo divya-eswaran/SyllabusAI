@@ -43,7 +43,6 @@ app.include_router(classes.router)
 app.include_router(ai.router)
 
 
-
 @app.get("/")
 def root():
     return {"message": "SyllabusAI API is running", "version": "1.0.0"}

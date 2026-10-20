@@ -188,6 +188,10 @@ class UserRegister(BaseModel):
     department: Optional[str] = None
 
 
+# Alias for compatibility with origin/main code
+UserCreate = UserRegister
+
+
 class UserLogin(BaseModel):
     email: str
     password: str
@@ -208,4 +212,10 @@ class UserOut(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    user: Optional[UserOut] = None
+
+
+# Alias for compatibility with origin/main code
+class AuthResponse(BaseModel):
+    token: str
     user: UserOut
