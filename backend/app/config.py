@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     )
     allowed_origins: str = Field(default="http://localhost:5173", env="ALLOWED_ORIGINS")
     embedding_model: str = Field(default="all-MiniLM-L6-v2", env="EMBEDDING_MODEL")
+    secret_key: str = Field(
+        default="syllabusai_super_secret_jwt_key_2026_production_safe_string",
+        env="SECRET_KEY",
+    )
+    access_token_expire_minutes: int = Field(default=60 * 24 * 7, env="ACCESS_TOKEN_EXPIRE_MINUTES")
 
     class Config:
         env_file = ".env"

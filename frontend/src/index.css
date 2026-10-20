@@ -91,6 +91,8 @@
   }
   .badge-primary { @apply badge bg-primary-600/20 text-primary-300 border border-primary-500/30; }
   .badge-accent { @apply badge bg-accent-600/20 text-accent-300 border border-accent-500/30; }
+  .badge-indigo { @apply badge bg-indigo-500/20 text-indigo-300 border border-indigo-500/30; }
+  .badge-violet { @apply badge bg-purple-500/20 text-purple-300 border border-purple-500/30; }
   .badge-success { @apply badge bg-emerald-600/20 text-emerald-300 border border-emerald-500/30; }
   .badge-warning { @apply badge bg-amber-600/20 text-amber-300 border border-amber-500/30; }
   .badge-muted { @apply badge bg-white/5 text-slate-400 border border-white/10; }

@@ -23,6 +23,7 @@ class Subject(Base):
     id = Column(Integer, primary_key=True, index=True)
     subject_code = Column(String(50), unique=True, index=True, nullable=False)
     subject_name = Column(String(255), nullable=False, index=True)
+    regulation = Column(String(50), default="Regulation 2023", index=True)
     semester = Column(String(20))
     credits = Column(Integer)
     lecture_hours = Column(Integer)
@@ -93,6 +94,26 @@ class SyllabusChunk(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class User(Base):
+    """User account for teachers, admins, and students."""
+
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(255), unique=True, index=True, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    full_name = Column(String(100), nullable=False)
+    role = Column(String(50), default="teacher")  # 'teacher', 'admin', 'student'
+    department = Column(String(100), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    student_id = Column(String(50), nullable=True)
+    year = Column(String(20), nullable=True)
+    section = Column(String(10), nullable=True)
+    last_login = Column(DateTime(timezone=True), nullable=True)
+
+    classes = relationship("TeacherClass", back_populates="user")
+
+
 class TeacherClass(Base):
     """A class/batch that a teacher is currently handling."""
 
@@ -100,6 +121,7 @@ class TeacherClass(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     batch = Column(String(20))           # e.g. 2025-2029
     department = Column(String(100))
     section = Column(String(10))
@@ -107,6 +129,7 @@ class TeacherClass(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     subject = relationship("Subject", back_populates="teacher_classes")
+    user = relationship("User", back_populates="classes")
     topic_progress = relationship(
         "TopicProgress", back_populates="teacher_class", cascade="all, delete-orphan"
     )
@@ -126,3 +149,4 @@ class TopicProgress(Base):
 
     teacher_class = relationship("TeacherClass", back_populates="topic_progress")
     topic = relationship("Topic", back_populates="progress_records")
+

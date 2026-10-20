@@ -163,8 +163,13 @@ export default function SubjectDetails() {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <div className="flex flex-wrap items-center gap-2 mb-3">
-                <span className="badge badge-primary text-sm px-3 py-1">{subject.subject_code}</span>
-                {subject.semester && <span className="badge badge-muted">Semester {subject.semester}</span>}
+                <span className="badge badge-primary text-sm px-3 py-1 font-mono font-bold">{subject.subject_code}</span>
+                <span className="badge badge-indigo text-sm px-3 py-1 font-semibold">{subject.regulation || 'Regulation 2023'}</span>
+                {subject.semester && (
+                  <span className="badge badge-muted">
+                    {subject.semester.toLowerCase() === 'elective' ? 'Elective' : `Semester ${subject.semester}`}
+                  </span>
+                )}
                 {subject.course_type && (
                   <span className="badge badge-accent">{subject.course_type}</span>
                 )}
@@ -180,7 +185,8 @@ export default function SubjectDetails() {
           </div>
 
           {/* Meta grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 mt-8 pt-6 border-t border-white/5">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-6 mt-8 pt-6 border-t border-white/5">
+            <MetaBadge label="Regulation" value={subject.regulation || 'Regulation 2023'} />
             <MetaBadge label="Credits" value={subject.credits} />
             <MetaBadge label="L / T / P" value={ltp} />
             <MetaBadge

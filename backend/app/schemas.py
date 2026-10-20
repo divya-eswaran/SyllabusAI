@@ -48,6 +48,7 @@ class CourseOutcomeItem(BaseModel):
 class SubjectBase(BaseModel):
     subject_code: str
     subject_name: str
+    regulation: Optional[str] = "Regulation 2023"
     semester: Optional[str] = None
     credits: Optional[int] = None
     lecture_hours: Optional[int] = None
@@ -76,6 +77,7 @@ class SubjectSummary(BaseModel):
     id: int
     subject_code: str
     subject_name: str
+    regulation: Optional[str] = "Regulation 2023"
     semester: Optional[str] = None
     credits: Optional[int] = None
     course_type: Optional[str] = None
@@ -161,9 +163,49 @@ class UploadResponse(BaseModel):
     subjects: List[SubjectSummary] = []
 
 
-# ─── Search ───────────────────────────────────────────────────────────────────
+# ─── Search & Semesters ─────────────────────────────────────────────────────────
+
+class SemesterInfo(BaseModel):
+    semester: str
+    display_name: str
+    count: int
+
 
 class SearchResponse(BaseModel):
     results: List[SubjectSummary]
     total: int
     query: str
+    detected_semester: Optional[str] = None
+
+
+# ─── Auth / User ───────────────────────────────────────────────────────────────
+
+class UserRegister(BaseModel):
+    email: str
+    password: str
+    full_name: str
+    role: Optional[str] = "teacher"
+    department: Optional[str] = None
+
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+
+class UserOut(BaseModel):
+    id: int
+    email: str
+    full_name: str
+    role: str
+    department: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserOut

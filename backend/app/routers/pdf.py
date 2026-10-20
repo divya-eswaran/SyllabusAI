@@ -31,6 +31,7 @@ def _save_subjects_to_db(db: Session, subjects_data: list[dict]) -> list[Subject
 
             # Update subject information
             subject.subject_name = data["subject_name"]
+            subject.regulation = data.get("regulation", "Regulation 2023")
             subject.semester = data.get("semester")
             subject.credits = data.get("credits")
             subject.lecture_hours = data.get("lecture_hours")
@@ -75,6 +76,7 @@ def _save_subjects_to_db(db: Session, subjects_data: list[dict]) -> list[Subject
             subject = Subject(
                 subject_code=data["subject_code"],
                 subject_name=data["subject_name"],
+                regulation=data.get("regulation", "Regulation 2023"),
                 semester=data.get("semester"),
                 credits=data.get("credits"),
                 lecture_hours=data.get("lecture_hours"),
@@ -133,6 +135,7 @@ def _build_summary(subject: Subject) -> SubjectSummary:
         id=subject.id,
         subject_code=subject.subject_code,
         subject_name=subject.subject_name,
+        regulation=subject.regulation or "Regulation 2023",
         semester=subject.semester,
         credits=subject.credits,
         course_type=subject.course_type,

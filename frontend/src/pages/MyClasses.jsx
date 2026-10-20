@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import {
   GraduationCap, Plus, Loader2, Trash2, BookOpen,
-  ChevronRight, Users, BarChart3, X, Search
+  ChevronRight, Users, BarChart3, X, Search, Sparkles, LogIn
 } from 'lucide-react'
 import { getClasses, createClass, deleteClass, getAllSubjects } from '../api'
+import { useAuth } from '../context/AuthContext'
 import toast from 'react-hot-toast'
+
 
 function ProgressRing({ pct }) {
   const r = 24
@@ -171,8 +173,16 @@ function AddClassModal({ onClose, onAdded }) {
                       : 'hover:bg-white/5 text-slate-400'
                   }`}
                 >
-                  <span className="font-semibold text-primary-400 mr-2">{s.subject_code}</span>
-                  {s.subject_name}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-semibold font-mono text-primary-400">{s.subject_code}</span>
+                    {s.regulation && <span className="badge badge-indigo text-[10px] py-0 px-1.5">{s.regulation}</span>}
+                    {s.semester && (
+                      <span className="badge badge-muted text-[10px] py-0 px-1.5">
+                        {s.semester.toLowerCase() === 'elective' ? 'Elective' : `Sem ${s.semester}`}
+                      </span>
+                    )}
+                    <span className="text-white text-xs truncate">{s.subject_name}</span>
+                  </div>
                 </button>
               ))
             )}
@@ -210,6 +220,7 @@ function AddClassModal({ onClose, onAdded }) {
 }
 
 export default function MyClasses() {
+  const { user, isAuthenticated } = useAuth()
   const [classes, setClasses] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -222,7 +233,7 @@ export default function MyClasses() {
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [isAuthenticated])
 
   const handleDelete = async (id) => {
     if (!confirm('Remove this class?')) return
@@ -238,19 +249,42 @@ export default function MyClasses() {
   return (
     <div className="min-h-screen pt-24 pb-16 px-4">
       <div className="max-w-5xl mx-auto">
+        {/* Auth prompt if not logged in */}
+        {!isAuthenticated && (
+          <div className="mb-6 p-3.5 rounded-2xl glass-card border border-white/10 flex items-center justify-between gap-3 animate-fade-in">
+            <div className="flex items-center gap-2.5">
+              <Sparkles className="w-4 h-4 text-primary-400" />
+              <p className="text-xs text-slate-300">
+                You are browsing as guest. Sign in to link newly added classes to your faculty account.
+              </p>
+            </div>
+            <Link
+              to="/login"
+              className="text-xs font-semibold text-primary-400 hover:text-primary-300 flex items-center gap-1 whitespace-nowrap"
+            >
+              <LogIn className="w-3.5 h-3.5" /> Sign In
+            </Link>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="section-title flex items-center gap-3">
               <GraduationCap className="w-7 h-7 text-primary-400" />
-              My Classes
+              {isAuthenticated ? `${user.full_name}'s Classes` : 'My Classes'}
             </h1>
-            <p className="section-subtitle mt-1">Track your subjects, sections & teaching progress</p>
+            <p className="section-subtitle mt-1">
+              {isAuthenticated
+                ? `Faculty Portfolio · ${user.department || 'Academic Department'}`
+                : 'Track your subjects, sections & teaching progress'}
+            </p>
           </div>
           <button onClick={() => setShowModal(true)} className="btn-primary">
             <Plus className="w-4 h-4" /> Add Class
           </button>
         </div>
+
 
         {/* Stats row */}
         {classes.length > 0 && (

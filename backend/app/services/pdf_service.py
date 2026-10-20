@@ -524,21 +524,127 @@ def _extract_subject_name(
             break
 
     if name_lines:
-
-        subject_name = " ".join(
-            name_lines
-        ).strip()
-
-        # Remove accidental number at end
-        subject_name = re.sub(
-            r"\s+\d+\s*$",
-            "",
-            subject_name,
-        )
-
-        return subject_name
+        subject_name = " ".join(name_lines).strip()
+        subject_name = re.sub(r"\s+\d+\s*$", "", subject_name)
+        return clean_subject_name(subject_name)
 
     return subject_code
+
+
+# ============================================================
+# SUBJECT CODE / SEMESTER / REGULATION MAPPING
+# ============================================================
+
+KNOWN_SEMESTER_MAP = {
+    # Semester 1
+    "EN23C01": ("1", "Foundational Course"),
+    "MA23C01": ("1", "Basic Science Course"),
+    "PH23C01": ("1", "Basic Science Course"),
+    "ME23C01": ("1", "Engineering Science Course"),
+    "EE23C02": ("1", "Engineering Science Course"),
+    "ME23C04": ("1", "Engineering Science Course"),
+    "UC23H01": ("1", "Humanities and Social Sciences"),
+
+    # Semester 2
+    "EN23C02": ("2", "Foundational Course"),
+    "MA23C03": ("2", "Basic Science Course"),
+    "PH23C08": ("2", "Basic Science Course"),
+    "CY23C01": ("2", "Basic Science Course"),
+    "CS23C04": ("2", "Engineering Science Course"),
+    "IT23201": ("2", "Professional Core"),
+    "UC23H02": ("2", "Humanities and Social Sciences"),
+
+    # Semester 3
+    "MA23C09": ("3", "Basic Science Course"),
+    "IT23301": ("3", "Professional Core"),
+    "IT23302": ("3", "Professional Core"),
+    "IT23303": ("3", "Professional Core"),
+    "IT23304": ("3", "Professional Core"),
+    "IT23U01": ("3", "Professional Core"),
+    "UC23U01": ("3", "Humanities and Social Sciences"),
+    "CS301":   ("3", "Professional Core"),
+
+    # Semester 4
+    "MA23C05": ("4", "Basic Science Course"),
+    "IT23401": ("4", "Professional Core"),
+    "IT23C01": ("4", "Professional Core"),
+    "IT23402": ("4", "Professional Core"),
+    "IT23403": ("4", "Professional Core"),
+    "IT23C02": ("4", "Professional Core"),
+    "IT23L01": ("4", "Value Added / Self-Learning"),
+
+    # Semester 5
+    "IT23501": ("5", "Professional Core"),
+    "IT23502": ("5", "Professional Core"),
+    "IT23503": ("5", "Professional Core"),
+    "IT23504": ("5", "Professional Core"),
+    "UC23E01": ("5", "Engineering Science Course"),
+    "IT23505": ("5", "Employability Enhancement"),
+    "IT23D01": ("5", "Capstone Project"),
+
+    # Semester 6
+    "IT23601": ("6", "Professional Core"),
+    "IT23602": ("6", "Professional Core"),
+    "IT23U02": ("6", "Humanities and Social Sciences"),
+    "IT23D02": ("6", "Capstone Project"),
+
+    # Semester 7
+    "IT23701": ("7", "Professional Core"),
+    "IT23702": ("7", "Professional Core"),
+    "IT23D03": ("7", "Capstone Project"),
+
+    # Semester 8
+    "IT23801": ("8", "Project Work"),
+
+    # NCC Credit courses
+    "UC23P01": ("Elective", "Value Added"),
+    "UC23P02": ("Elective", "Value Added"),
+    "UC23P03": ("Elective", "Value Added"),
+}
+
+INVALID_CODES = {"CDMA2000", "ESP8266", "ISO14000"}
+
+
+def clean_subject_name(name: str) -> str:
+    if not name:
+        return ""
+    name = re.sub(r'\(Common to all branches[^\)]*\)', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'\b(COURSE\s+OBJECTIVES?|OBJECTIVES?)\b.*$', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'\bUNIT\s+[I|V|X\d]+.*$', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'\bL\s*T\s*P\s*C[\s\d]*$', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'\bL\s*T\s*P[\s\d]*$', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'\bT\s*P\s*C[\s\d]*$', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'\bL\s*T[\s\d]*$', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'\bP\s*C[\s\d]*$', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'\bOEC\b', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'[\s:.\-–—]+$', '', name)
+    name = re.sub(r'\s+', ' ', name).strip()
+    return name.title()
+
+
+def infer_subject_metadata(subject_code: str, existing_semester: Optional[str] = None):
+    code = subject_code.strip().upper()
+    reg_match = re.match(r'^[A-Z]{2,4}(\d{2})', code)
+    regulation = f"Regulation 20{reg_match.group(1)}" if reg_match else "Regulation 2023"
+
+    if code in KNOWN_SEMESTER_MAP:
+        sem, ctype = KNOWN_SEMESTER_MAP[code]
+        return sem, regulation, ctype
+
+    m = re.match(r'^[A-Z]{2,4}\d{2}([1-8])\d{2}$', code)
+    if m:
+        return m.group(1), regulation, "Professional Core"
+
+    if re.match(r'^[A-Z]{2,4}\d{2}0\d{2}$', code) or code.startswith("IT23C") or code.startswith("IT23E"):
+        return "Elective", regulation, "Professional Elective"
+
+    if re.match(r'^[A-Z]{2,4}\d{2}9\d{2}$', code):
+        return "Elective", regulation, "Open Elective"
+
+    if existing_semester:
+        return str(existing_semester), regulation, "Core"
+
+    return "Elective", regulation, "Elective"
 
 
 # ============================================================
@@ -569,6 +675,9 @@ def parse_subject_block(
         .strip()
         .upper()
     )
+
+    if subject_code in INVALID_CODES:
+        return None
 
     # --------------------------------------------------------
     # Subject name
@@ -776,9 +885,16 @@ def parse_subject_block(
     # Return structured subject
     # --------------------------------------------------------
 
+    inferred_sem, regulation, inferred_type = infer_subject_metadata(subject_code, semester)
+    if not semester:
+        semester = inferred_sem
+    if not course_type:
+        course_type = inferred_type
+
     return {
         "subject_code": subject_code,
         "subject_name": subject_name,
+        "regulation": regulation,
         "semester": semester,
         "credits": credits,
         "lecture_hours": lecture,
